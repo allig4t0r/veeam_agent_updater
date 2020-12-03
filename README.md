@@ -8,10 +8,17 @@ Prerequisites: Domain Administrator rights, must be run on the Veeam B&R server.
 Please notice that it is expected to have the following file structure:
 
 lin
+    
     veeamagent64
+    
     veeamagent
+
 win64
+    
     VeeamAgent.exe
+
 win32
+    
     VeeamAgent.exe
+
 agent_uploader.ps1
