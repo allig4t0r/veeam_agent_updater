@@ -12,6 +12,7 @@ Tested on Veeam Backup & Replication v10 and PowerShell v5
 Change history:
 v0.2 Added new paths
 v0.3 Added Join-Paths and move $Date so all the backed up agents will have the same time in the name
+v0.4 Added Exit in the Default switch in Copy-Agents just in case :)
 
 .EXAMPLE
 ./agent_uploader.ps1
@@ -212,6 +213,7 @@ function Copy-Agents {
                 }
                 Default {
                     Write-Log("This is totally unhandled exception")
+                    Exit
                 }
             }
         }
