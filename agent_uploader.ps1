@@ -11,6 +11,7 @@ Tested on Veeam Backup & Replication v10 and PowerShell v5
 
 Change history:
 v0.2 Added new paths
+v0.3 Added Join-Paths and move $Date so all the backed up agents will have the same time in the name
 
 .EXAMPLE
 ./agent_uploader.ps1
@@ -117,6 +118,21 @@ $VeeamAdditionalPaths = @(
     "c$\Program Files\Veeam\Backup and Replication\Enterprise Manager\WinAgent\VeeamAgent.exe"
 )
 
+function Join-Paths {
+    param (
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$WinHost,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path
+    )
+    $Path = Join-Path $WinHost $Path
+    $FullPath = "\\$Path"
+    return $FullPath
+}
+
 function Copy-Agents {
     param (
         [Parameter(Mandatory)]
@@ -133,9 +149,8 @@ function Copy-Agents {
     )
     foreach ($WinHost in $Hosts) {
         foreach ($Path in $Paths) {
-            $Date = Get-Date -Format "ddMMyyyy_HHmmss"
-            $Path = Join-Path $WinHost $Path
-            $FullPath = "\\$Path"
+            
+            $FullPath = Join-Paths $WinHost $Path
 
             switch ($Action) {
                 "backup" {
@@ -164,7 +179,7 @@ function Copy-Agents {
                     }
                     else {
                         Write-Host "Updating $FullPath..." -BackgroundColor White -ForegroundColor Black
-                        switch -Wildcard ($Path) {
+                        switch -Wildcard ($FullPath) {
                             "*x64\VeeamAgent.exe" {
                                 $Agent = $Agents[0]
                             }
@@ -272,13 +287,13 @@ Test-AgentFiles
 Add-PSSnapin VeeamPSSnapin
 
 Write-Host "Starting script execution" -BackgroundColor White -ForegroundColor Black
+Write-Log("Starting script execution")
 
+$Date = Get-Date -Format "ddMMyyyy_HHmmss"
 $VeeamServer = Get-VeeamServer
 $WindowsHosts = Get-WindowsHosts
 
 Stop-VeeamService
-
-Write-Log("Starting script execution")
 
 $PSVersion = Get-PSVersion
 Write-Log("PowerShell version: $PSVersion")
