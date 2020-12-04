@@ -6,8 +6,11 @@
 This script automates agent deployment for NAS Cumulative Fix
 
 .DESCRIPTION
-This script was written by Alexander Gerasimov <alexander.gerasimov@veeam.com>, v0.1 @ 3 Dec 2020
+This script was written by Alexander Gerasimov <alexander.gerasimov@veeam.com>, v0.2 @ 3 Dec 2020
 Tested on Veeam Backup & Replication v10 and PowerShell v5
+
+Change history:
+v0.2 Added new paths
 
 .EXAMPLE
 ./agent_uploader.ps1
@@ -94,6 +97,7 @@ function Test-AgentFiles {
 $WindowsPaths = @(
     "c$\Program Files (x86)\Veeam\Backup Transport\x64\VeeamAgent.exe"
     "c$\Program Files (x86)\Veeam\Backup Transport\x86\VeeamAgent.exe"
+    "c$\Program Files (x86)\Veeam\Backup Transport\GuestInteraction\VSS\sql\VeeamAgent.exe"
 )
 
 $LinuxMountPaths = @(
@@ -104,6 +108,13 @@ $LinuxMountPaths = @(
 $LinuxVeeamPaths = @(
     "c$\Program Files\Veeam\Backup and Replication\Backup\VeeamAgent"
     "c$\Program Files\Veeam\Backup and Replication\Backup\VeeamAgent64"
+)
+
+$VeeamAdditionalPaths = @(
+    "c$\Program Files\Veeam\Backup and Replication\Backup\VSS\sql\VeeamAgent.exe"
+    "c$\Program Files\Veeam\Backup and Replication\Backup\WinAgent\VeeamAgent.exe"
+    "c$\Program Files\Veeam\Backup and Replication\Backup Catalog\WinAgent\VeeamAgent.exe"
+    "c$\Program Files\Veeam\Backup and Replication\Enterprise Manager\WinAgent\VeeamAgent.exe"
 )
 
 function Copy-Agents {
@@ -165,6 +176,12 @@ function Copy-Agents {
                             }
                             "*VeeamAgent" {
                                 $Agent = $Agents[3]
+                            }
+                            "*sql\VeeamAgent.exe" {
+                                $Agent = $Agents[1]
+                            }
+                            "*WinAgent\VeeamAgent.exe" {
+                                $Agent = $Agents[1]
                             }
                         }
                         try {
@@ -271,10 +288,12 @@ Write-Log("PowerShell version: $PSVersion")
 Copy-Agents $VeeamServer $WindowsPaths backup
 Copy-Agents $VeeamServer $LinuxMountPaths backup
 Copy-Agents $VeeamServer $LinuxVeeamPaths backup
+Copy-Agents $VeeamServer $VeeamAdditionalPaths backup
 
 Copy-Agents $VeeamServer $WindowsPaths deploy
 Copy-Agents $VeeamServer $LinuxMountPaths deploy
 Copy-Agents $VeeamServer $LinuxVeeamPaths deploy
+Copy-Agents $VeeamServer $VeeamAdditionalPaths deploy
 
 #Processing of agents in Backup Transport and Mount Service on all Windows servers added into Veeam
 
