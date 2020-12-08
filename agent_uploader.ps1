@@ -1,21 +1,33 @@
 #Requires -RunAsAdministrator
 #Requires -PSSnapin VeeamPSSnapIn
 
+param (
+    [Parameter(Mandatory = $False, Position = 0)]
+    [ValidateNotNullOrEmpty()]
+    [string]$SingleHost
+)
+
 <#
 .SYNOPSIS
 This script automates agent deployment for NAS Cumulative Fix
 
 .DESCRIPTION
-This script was written by Alexander Gerasimov <alexander.gerasimov@veeam.com>, v0.2 @ 3 Dec 2020
+This script was written by Alexander Gerasimov <alexander.gerasimov@veeam.com> 2020
 Tested on Veeam Backup & Replication v10 and PowerShell v5
 
 Change history:
 v0.2 Added new paths
-v0.3 Added Join-Paths and move $Date so all the backed up agents will have the same time in the name
+v0.3 Added Join-Paths and moved $Date so all the backed up agents will have the same time in the name
 v0.4 Added Exit in the Default switch in Copy-Agents just in case :)
+v0.5 Added -SingleHost mode
+
+.INPUTS
+Script runs either without parameters or in a -SingleHost mode that requires you to input an ip address or a domain name.
 
 .EXAMPLE
 ./agent_uploader.ps1
+./agent_uploader.ps1 <host>
+./agent_uploader.ps1 -SingleHost <host>
 
 .NOTES
     This script must be started on the Veeam B&R server under Domain Administrator privileges.
@@ -162,7 +174,7 @@ function Copy-Agents {
                     }
                     else {
                         try {
-                            Copy-Item $FullPath "$($FullPath)_$Date" -ErrorAction Stop
+                            Copy-Item $FullPath "$($FullPath)_$StartDate" -ErrorAction Stop
                         }
                         catch {
                             Write-Host "$FullPath was not backed up" -BackgroundColor Red -ForegroundColor Black
@@ -263,7 +275,7 @@ function Stop-VeeamService {
                 Stop-Service -DisplayName "Veeam Backup Service" -ErrorAction Stop
             }
             catch {
-                Write-Host "Please run this script one more time, Veeam Backup Service hasn't stopped!" -BackgroundColor Red -ForegroundColor Black
+                Write-Host "Please run this script one more time, Veeam Backup Service hadn't been stopped!" -BackgroundColor Red -ForegroundColor Black
                 Write-Log("Veeam Backup Service was not stopped")
                 Exit
             }
@@ -281,6 +293,36 @@ function Stop-VeeamService {
     }
 }
 
+function Update-VeeamServer {
+    param (
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$VeeamHost
+    )
+    Copy-Agents $VeeamHost $WindowsPaths backup
+    Copy-Agents $VeeamHost $LinuxMountPaths backup
+    Copy-Agents $VeeamHost $LinuxVeeamPaths backup
+    Copy-Agents $VeeamHost $VeeamAdditionalPaths backup
+
+    Copy-Agents $VeeamHost $WindowsPaths deploy
+    Copy-Agents $VeeamHost $LinuxMountPaths deploy
+    Copy-Agents $VeeamHost $LinuxVeeamPaths deploy
+    Copy-Agents $VeeamHost $VeeamAdditionalPaths deploy
+}
+
+function Update-WindowsServers {
+    param (
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]$WindowsServers
+    )
+    Copy-Agents $WindowsServers $WindowsPaths backup
+    Copy-Agents $WindowsServers $LinuxMountPaths backup
+    
+    Copy-Agents $WindowsServers $WindowsPaths deploy
+    Copy-Agents $WindowsServers $LinuxMountPaths deploy
+}
+
 Write-Log("`n")
 
 Test-Veeam
@@ -291,34 +333,58 @@ Add-PSSnapin VeeamPSSnapin
 Write-Host "Starting script execution" -BackgroundColor White -ForegroundColor Black
 Write-Log("Starting script execution")
 
-$Date = Get-Date -Format "ddMMyyyy_HHmmss"
+$PSVersion = Get-PSVersion
+Write-Log("PowerShell version: $PSVersion")
+
+$StartDate = Get-Date -Format "ddMMyyyy_HHmmss"
+
+if ($PSBoundParameters.ContainsKey('SingleHost')) {
+    if (Test-Connection $SingleHost -Count 1 -Quiet) {
+        Write-Log("$SingleHost is alive")
+        $IsVeeam = Read-Host "Is $SingleHost a Veeam B&R main server? [y/n]"
+        switch ($IsVeeam) {
+            "y" {
+                $IsVeeam = $True
+                Write-Log("$SingleHost acts as a Veeam server")
+            }
+            "n" {
+                $IsVeeam = $False
+                Write-Log("$SingleHost is not Veeam server")
+            }
+            Default {
+                Write-Host "Please choose either of options!" -BackgroundColor Red -ForegroundColor Black
+                Exit
+            }
+        }
+        Stop-VeeamService
+        if ($IsVeeam) {
+            Update-VeeamServer $SingleHost
+        }
+        else {
+            Update-WindowsServers $SingleHost
+        }
+        Write-Log("$SingleHost agent deployment complete")
+        Write-Host "$SingleHost was updated. Please start Veeam Backup Service manually and run Veeam Console once" -ForegroundColor Green
+        Exit
+    }
+    else {
+        Write-Host "$SingleHost is not accessible" -BackgroundColor Red -ForegroundColor Black
+        Exit
+    }
+}
+
 $VeeamServer = Get-VeeamServer
 $WindowsHosts = Get-WindowsHosts
 
 Stop-VeeamService
 
-$PSVersion = Get-PSVersion
-Write-Log("PowerShell version: $PSVersion")
-
 #Processing of agents in Backup Transport, Mount Service and Veeam server's Linux agents on Veeam server
 
-Copy-Agents $VeeamServer $WindowsPaths backup
-Copy-Agents $VeeamServer $LinuxMountPaths backup
-Copy-Agents $VeeamServer $LinuxVeeamPaths backup
-Copy-Agents $VeeamServer $VeeamAdditionalPaths backup
-
-Copy-Agents $VeeamServer $WindowsPaths deploy
-Copy-Agents $VeeamServer $LinuxMountPaths deploy
-Copy-Agents $VeeamServer $LinuxVeeamPaths deploy
-Copy-Agents $VeeamServer $VeeamAdditionalPaths deploy
+Update-VeeamServer $VeeamServer
 
 #Processing of agents in Backup Transport and Mount Service on all Windows servers added into Veeam
 
-Copy-Agents $WindowsHosts $WindowsPaths backup
-Copy-Agents $WindowsHosts $LinuxMountPaths backup
-
-Copy-Agents $WindowsHosts $WindowsPaths deploy
-Copy-Agents $WindowsHosts $LinuxMountPaths deploy
+Update-WindowsServers $WindowsHosts
 
 Write-Log("Agent deployment complete")
 Write-Host "All done. Please start Veeam Backup Service manually and run Veeam Console once" -ForegroundColor Green
