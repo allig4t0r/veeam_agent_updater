@@ -7,6 +7,11 @@ Prerequisites: Domain Administrator rights, must be run on the Veeam B&R server.
 
 Main scenario: script is started under Domain Administrator on the Veeam B&R server; all Windows machines added into Veeam are browseable via c$; folder structure of agents is saved as is.
 
+It's also possible to update only 1 server using the -SingleHost option. You'd need to pass it as an argument:
+
+./agent_uploader.ps1 <host>
+./agent_uploader.ps1 -SingleHost <host>
+
 Please notice that it is expected to have the following file structure:
 
 lin
