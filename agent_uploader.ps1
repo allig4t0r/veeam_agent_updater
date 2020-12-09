@@ -2,9 +2,9 @@
 #Requires -PSSnapin VeeamPSSnapIn
 
 param (
-    [Parameter(Mandatory = $False, Position = 0)]
+    [Parameter(Mandatory = $False, ValueFromPipeline = $True, Position = 0)]
     [ValidateNotNullOrEmpty()]
-    [string]$SingleHost
+    [PSObject]$SingleHost
 )
 
 <#
@@ -20,14 +20,16 @@ v0.2 Added new paths
 v0.3 Added Join-Paths and moved $Date so all the backed up agents will have the same time in the name
 v0.4 Added Exit in the Default switch in Copy-Agents just in case :)
 v0.5 Added -SingleHost mode
+v0.6 Now -SingleHost mode accepts pipeline input and only Get-VBRServer -Local or -Windows objects
 
 .INPUTS
 Script runs either without parameters or in a -SingleHost mode that requires you to input an ip address or a domain name.
 
 .EXAMPLE
 ./agent_uploader.ps1
-./agent_uploader.ps1 <host>
-./agent_uploader.ps1 -SingleHost <host>
+Get-VBRLocalhost | .\agent_uploader.ps1
+Get-VBRServer -Type Local | .\agent_uploader.ps1
+Get-VBRServer -Name 172.17.249.137 | .\agent_uploader.ps1
 
 .NOTES
     This script must be started on the Veeam B&R server under Domain Administrator privileges.
@@ -39,6 +41,8 @@ of the script are missing: VeeamPSSnapIn.' then you've already updated the agent
  
     Another possibility if you run this script multiple times is that you got into PoweShell glitch. If that's the case 
 running Add-PSSnapin VeeamPSSnapin in a new PS console should be enough.
+
+    If host is unavailable, sometimes Test-Path might get stuck on checking the availability of the path. Simply hit Enter to keep it running forward.
 #>
 
 function Get-PSVersion {
@@ -101,8 +105,8 @@ function Test-AgentFiles {
         Write-Host "$Agent was found"
         Write-Log("$Agent was found")
     
-        $MD5Hash = Get-FileHash -Algorithm MD5 $Agent | Select-Object -ExpandProperty Hash
-        Write-Log("$Agent MD5: $MD5Hash")
+        $MD5Hash = Get-FileHash -Algorithm MD5 $Agent
+        Write-Log("$Agent MD5: $($MD5Hash.Hash)")
     }
     Write-Host "All new agent files were detected"
     Write-Log("All new agent files were detected")
@@ -235,7 +239,7 @@ function Copy-Agents {
 function Get-WindowsHosts {
     Write-Host "Getting all Windows servers added into Veeam B&R..." -NoNewline -BackgroundColor White -ForegroundColor Black
     try {
-        $WindowsHosts = Get-VBRServer -Type Windows | Select-Object -ExpandProperty Name -ErrorAction Stop
+        $WindowsHosts = $(Get-VBRServer -Type Windows -ErrorAction Stop).Name
     }
     catch {
         Write-Host "Windows hosts added into Veeam B&R were not collected!" -BackgroundColor Red -ForegroundColor Black
@@ -253,7 +257,7 @@ function Get-WindowsHosts {
 function Get-VeeamServer {
     Write-Host "Getting Veeam server name..." -NoNewline -BackgroundColor White -ForegroundColor Black
     try {
-        $VeeamServer = Get-VBRLocalhost | Select-Object -ExpandProperty Name -ErrorAction Stop
+        $VeeamServer = $(Get-VBRLocalhost -ErrorAction Stop).Name 
     }
     catch {
         Write-Host "Veeam B&R server name was not collected! You might need to open a new PowerShell window." -BackgroundColor Red -ForegroundColor Black
@@ -297,30 +301,30 @@ function Update-VeeamServer {
     param (
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string]$VeeamHost
+        [PSObject]$VeeamServer
     )
-    Copy-Agents $VeeamHost $WindowsPaths backup
-    Copy-Agents $VeeamHost $LinuxMountPaths backup
-    Copy-Agents $VeeamHost $LinuxVeeamPaths backup
-    Copy-Agents $VeeamHost $VeeamAdditionalPaths backup
+    Copy-Agents $VeeamServer $WindowsPaths backup
+    Copy-Agents $VeeamServer $LinuxMountPaths backup
+    Copy-Agents $VeeamServer $LinuxVeeamPaths backup
+    Copy-Agents $VeeamServer $VeeamAdditionalPaths backup
 
-    Copy-Agents $VeeamHost $WindowsPaths deploy
-    Copy-Agents $VeeamHost $LinuxMountPaths deploy
-    Copy-Agents $VeeamHost $LinuxVeeamPaths deploy
-    Copy-Agents $VeeamHost $VeeamAdditionalPaths deploy
+    Copy-Agents $VeeamServer $WindowsPaths deploy
+    Copy-Agents $VeeamServer $LinuxMountPaths deploy
+    Copy-Agents $VeeamServer $LinuxVeeamPaths deploy
+    Copy-Agents $VeeamServer $VeeamAdditionalPaths deploy
 }
 
-function Update-WindowsServers {
+function Update-WindowsHosts {
     param (
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [PSObject]$WindowsServers
+        [PSObject]$WindowsHosts
     )
-    Copy-Agents $WindowsServers $WindowsPaths backup
-    Copy-Agents $WindowsServers $LinuxMountPaths backup
+    Copy-Agents $WindowsHosts $WindowsPaths backup
+    Copy-Agents $WindowsHosts $LinuxMountPaths backup
     
-    Copy-Agents $WindowsServers $WindowsPaths deploy
-    Copy-Agents $WindowsServers $LinuxMountPaths deploy
+    Copy-Agents $WindowsHosts $WindowsPaths deploy
+    Copy-Agents $WindowsHosts $LinuxMountPaths deploy
 }
 
 Write-Log("`n")
@@ -336,55 +340,41 @@ Write-Log("Starting script execution")
 $PSVersion = Get-PSVersion
 Write-Log("PowerShell version: $PSVersion")
 
+# Getting the date here to have the same date when renaming the agents during backup
 $StartDate = Get-Date -Format "ddMMyyyy_HHmmss"
 
 if ($PSBoundParameters.ContainsKey('SingleHost')) {
-    if (Test-Connection $SingleHost -Count 1 -Quiet) {
-        Write-Log("$SingleHost is alive")
-        $IsVeeam = Read-Host "Is $SingleHost a Veeam B&R main server? [y/n]"
-        switch ($IsVeeam) {
-            "y" {
-                $IsVeeam = $True
-                Write-Log("$SingleHost acts as a Veeam server")
-            }
-            "n" {
-                $IsVeeam = $False
-                Write-Log("$SingleHost is not Veeam server")
-            }
-            Default {
-                Write-Host "Please choose either of options!" -BackgroundColor Red -ForegroundColor Black
-                Exit
-            }
+        Write-Host "Processing in SingleHost mode" -BackgroundColor White -ForegroundColor Black
+        Write-Log("Processing in SingleHost mode")
+
+        if ($SingleHost.Type -eq "Local") {
+            $VeeamServer = $SingleHost.Name
+            Write-Log("$SingleHost acts as a Veeam server")
         }
-        Stop-VeeamService
-        if ($IsVeeam) {
-            Update-VeeamServer $SingleHost
+        elseif ($SingleHost.Type -eq "Windows") {
+            $WindowsHosts = $SingleHost.Name
+            Write-Log("$SingleHost is not Veeam server")
         }
         else {
-            Update-WindowsServers $SingleHost
+            Write-Host "Script accepts only CHosts with Local or Windows types" -BackgroundColor Red -ForegroundColor Black
         }
-        Write-Log("$SingleHost agent deployment complete")
-        Write-Host "$SingleHost was updated. Please start Veeam Backup Service manually and run Veeam Console once" -ForegroundColor Green
-        Exit
-    }
-    else {
-        Write-Host "$SingleHost is not accessible" -BackgroundColor Red -ForegroundColor Black
-        Exit
-    }
 }
-
-$VeeamServer = Get-VeeamServer
-$WindowsHosts = Get-WindowsHosts
+else {
+    $VeeamServer = Get-VeeamServer
+    $WindowsHosts = Get-WindowsHosts    
+}
 
 Stop-VeeamService
 
-#Processing of agents in Backup Transport, Mount Service and Veeam server's Linux agents on Veeam server
+#If script was started without any parameters we will process all the Windows servers added into Veeam B&R including Veeam itself
 
-Update-VeeamServer $VeeamServer
+if ($VeeamServer) {
+    Update-VeeamServer $VeeamServer
+}
 
-#Processing of agents in Backup Transport and Mount Service on all Windows servers added into Veeam
-
-Update-WindowsServers $WindowsHosts
+if ($WindowsHosts) {
+    Update-WindowsHosts $WindowsHosts
+}
 
 Write-Log("Agent deployment complete")
 Write-Host "All done. Please start Veeam Backup Service manually and run Veeam Console once" -ForegroundColor Green
