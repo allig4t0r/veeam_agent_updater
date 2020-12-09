@@ -9,8 +9,10 @@ Main scenario: script is started under Domain Administrator on the Veeam B&R ser
 
 It's also possible to update only 1 server using the -SingleHost option. You'd need to pass it as an argument:
 
-    ./agent_uploader.ps1 <host>
-    ./agent_uploader.ps1 -SingleHost <host>
+    ./agent_uploader.ps1
+    Get-VBRLocalhost | .\agent_uploader.ps1
+    Get-VBRServer -Type Local | .\agent_uploader.ps1
+    Get-VBRServer -Name 172.17.249.137 | .\agent_uploader.ps1
 
 Please notice that it is expected to have the following file structure:
 
