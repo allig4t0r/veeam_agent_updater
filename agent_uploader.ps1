@@ -1,5 +1,4 @@
 #Requires -RunAsAdministrator
-#Requires -PSSnapin VeeamPSSnapIn
 
 param (
     [Parameter(Mandatory = $False, ValueFromPipeline = $True, Position = 0)]
@@ -21,6 +20,7 @@ v0.3 Added Join-Paths and moved $Date so all the backed up agents will have the 
 v0.4 Added Exit in the Default switch in Copy-Agents just in case :)
 v0.5 Added -SingleHost mode
 v0.6 Now -SingleHost mode accepts pipeline input and only Get-VBRServer -Local or -Windows objects
+v0.7 Added some $null checks cause not all Veeam B&R installations have Windows hosts
 
 .INPUTS
 Script runs either without parameters or in a -SingleHost mode that requires you to input an ip address or a domain name.
@@ -247,11 +247,17 @@ function Get-WindowsHosts {
         Exit
     }
     Write-Host "Done" -BackgroundColor White -ForegroundColor Green
-    Write-Log("List of all Windows hosts added into Veeam:")
-    foreach ($WinHost in $WindowsHosts) {
-        Write-Log("     $WinHost")
+    if ($WindowsHosts) {
+        Write-Log("List of all Windows hosts added into Veeam:")
+        foreach ($WinHost in $WindowsHosts) {
+            Write-Log("     $WinHost")
+        }
+        return $WindowsHosts
     }
-    return $WindowsHosts
+    else {
+        Write-Host "No Windows hosts were detected"
+        Write-Log("No Windows hosts were detected")
+    }
 }
 
 function Get-VeeamServer {
@@ -320,11 +326,18 @@ function Update-WindowsHosts {
         [ValidateNotNullOrEmpty()]
         [PSObject]$WindowsHosts
     )
-    Copy-Agents $WindowsHosts $WindowsPaths backup
-    Copy-Agents $WindowsHosts $LinuxMountPaths backup
-    
-    Copy-Agents $WindowsHosts $WindowsPaths deploy
-    Copy-Agents $WindowsHosts $LinuxMountPaths deploy
+    # Should be kinda bulletproof version of if($WindowsHosts) even though it looks not so dapper
+    # More on that https://docs.microsoft.com/en-us/powershell/scripting/learn/deep-dives/everything-about-null?view=powershell-7.1
+    if ($null -ne $WindowsHosts) {
+        Copy-Agents $WindowsHosts $WindowsPaths backup
+        Copy-Agents $WindowsHosts $LinuxMountPaths backup
+        
+        Copy-Agents $WindowsHosts $WindowsPaths deploy
+        Copy-Agents $WindowsHosts $LinuxMountPaths deploy
+    }
+    else {
+        Write-Log("Update-WindowsHosts was passed with null somehow")
+    }
 }
 
 Write-Log("`n")
@@ -361,7 +374,7 @@ if ($PSBoundParameters.ContainsKey('SingleHost')) {
 }
 else {
     $VeeamServer = Get-VeeamServer
-    $WindowsHosts = Get-WindowsHosts    
+    $WindowsHosts = Get-WindowsHosts
 }
 
 Stop-VeeamService
